@@ -4,19 +4,18 @@ Docker deployment for [OpenClaw](https://docs.openclaw.ai/) — an AI gateway th
 
 ## Quick Start
 
-### Using Docker Desktop
-
 ```bash
-./docker-setup.sh
+./setup.sh
 ```
 
-### Using Colima (macOS, no Docker Desktop)
+The script auto-detects your Docker runtime. To force a specific one:
 
 ```bash
-./colima-setup.sh
+./setup.sh --docker    # Docker Desktop
+./setup.sh --colima    # Colima (macOS, no Docker Desktop)
 ```
 
-Both scripts walk you through an interactive wizard and start the gateway. Once running, open `http://127.0.0.1:18789/` and paste the gateway token shown in the terminal.
+The interactive wizard walks you through configuration and starts the gateway. Once running, open `http://127.0.0.1:18789/` and paste the gateway token shown in the terminal.
 
 ## What the Setup Wizard Asks
 
@@ -103,13 +102,12 @@ After setup, use `openclaw.sh` to manage the gateway. It automatically loads you
 
 | File | Purpose |
 |------|---------|
-| `Dockerfile` | Multi-stage build from `node:24-bookworm` |
-| `docker-compose.yml` | Production service definition with security hardening |
-| `docker-setup.sh` | Interactive setup for Docker Desktop |
-| `colima-setup.sh` | Interactive setup for Colima (macOS) |
-| `openclaw.json` | Default config — OpenRouter provider + free models + channel templates |
+| `setup.sh` | Interactive setup wizard (auto-detects Docker/Colima) |
 | `openclaw.sh` | Management script (start/stop/restart/logs/update) |
+| `docker-compose.yml` | Production service definition with security hardening |
 | `docker-compose.build.yml` | Build override for local compilation |
+| `Dockerfile` | Multi-stage build from `node:24-bookworm` |
+| `openclaw.json` | Default config template — OpenRouter + free models |
 
 ## Configuration
 

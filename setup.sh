@@ -13,20 +13,6 @@ ok()    { printf "${GREEN}[ok]${NC}    %s\n" "$*"; }
 warn()  { printf "${YELLOW}[warn]${NC}  %s\n" "$*"; }
 err()   { printf "${RED}[error]${NC} %s\n" "$*" >&2; }
 
-# ── Load existing .env if present ─────────────────────────────────
-OPENCLAW_DIR="${HOME}/.openclaw"
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-ENV_FILE="${SCRIPT_DIR}/.env"
-
-# Source existing .env to use as defaults (ignore errors for empty values)
-if [ -f "$ENV_FILE" ]; then
-  set +e
-  # shellcheck disable=SC1090
-  source "$ENV_FILE"
-  set -e
-  info "Loaded existing .env — press Enter to keep current values."
-fi
-
 # Helper: show current value hint (masked for secrets)
 hint() {
   local val="$1"
@@ -36,10 +22,114 @@ hint() {
   fi
 }
 
-# ── Pre-flight checks ─────────────────────────────────────────────
-command -v docker >/dev/null 2>&1 || { err "Docker is not installed."; exit 1; }
-docker compose version >/dev/null 2>&1 || { err "Docker Compose v2 is required."; exit 1; }
+# ── Detect runtime: --colima flag or auto-detect ───────────────────
+RUNTIME="docker"
+COLIMA_SOCKET=""
+DOCKER_SOCKET="/var/run/docker.sock"
 
+for arg in "$@"; do
+  case "$arg" in
+    --colima) RUNTIME="colima" ;;
+    --docker) RUNTIME="docker" ;;
+  esac
+done
+
+# Auto-detect: if colima is installed and Docker Desktop isn't running
+if [ "$RUNTIME" = "docker" ] && command -v colima >/dev/null 2>&1; then
+  if ! docker info >/dev/null 2>&1; then
+    info "Docker not reachable — switching to Colima mode."
+    RUNTIME="colima"
+  fi
+fi
+
+# ── Paths ──────────────────────────────────────────────────────────
+OPENCLAW_DIR="${HOME}/.openclaw"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+ENV_FILE="${SCRIPT_DIR}/.env"
+
+# ── Load existing .env if present ─────────────────────────────────
+if [ -f "$ENV_FILE" ]; then
+  set +e
+  # shellcheck disable=SC1090
+  source "$ENV_FILE"
+  set -e
+  info "Loaded existing .env — press Enter to keep current values."
+fi
+
+# ══════════════════════════════════════════════════════════════════
+#  COLIMA: VM management
+# ══════════════════════════════════════════════════════════════════
+if [ "$RUNTIME" = "colima" ]; then
+  COLIMA_PROFILE="${COLIMA_PROFILE:-openclaw}"
+  COLIMA_CPU="${COLIMA_CPU:-2}"
+  COLIMA_MEMORY="${COLIMA_MEMORY:-4}"
+  COLIMA_DISK="${COLIMA_DISK:-30}"
+
+  command -v colima >/dev/null 2>&1 || {
+    err "Colima is not installed."
+    info "Install with: brew install colima"
+    exit 1
+  }
+
+  command -v docker >/dev/null 2>&1 || {
+    err "Docker CLI is not installed."
+    info "Install with: brew install docker docker-compose"
+    exit 1
+  }
+
+  docker compose version >/dev/null 2>&1 || {
+    err "Docker Compose v2 is required."
+    info "Install with: brew install docker-compose"
+    exit 1
+  }
+
+  # Start or verify Colima VM
+  if colima status -p "$COLIMA_PROFILE" >/dev/null 2>&1; then
+    ok "Colima profile '${COLIMA_PROFILE}' is already running."
+  else
+    info "Starting Colima profile '${COLIMA_PROFILE}' (${COLIMA_CPU} CPU, ${COLIMA_MEMORY} GB RAM, ${COLIMA_DISK} GB disk)..."
+    colima start \
+      --profile "$COLIMA_PROFILE" \
+      --cpu "$COLIMA_CPU" \
+      --memory "$COLIMA_MEMORY" \
+      --disk "$COLIMA_DISK" \
+      --mount-type virtiofs
+    ok "Colima VM started."
+  fi
+
+  # Resolve Docker socket
+  if [ "$COLIMA_PROFILE" = "default" ]; then
+    COLIMA_SOCKET="${HOME}/.colima/default/docker.sock"
+  else
+    COLIMA_SOCKET="${HOME}/.colima/${COLIMA_PROFILE}/docker.sock"
+  fi
+
+  if [ ! -S "$COLIMA_SOCKET" ]; then
+    err "Colima socket not found at ${COLIMA_SOCKET}"
+    info "Try: colima status -p ${COLIMA_PROFILE}"
+    exit 1
+  fi
+
+  export DOCKER_HOST="unix://${COLIMA_SOCKET}"
+  DOCKER_SOCKET="$COLIMA_SOCKET"
+  ok "Using Docker socket: ${COLIMA_SOCKET}"
+
+  # Verify Docker is responsive
+  if ! docker info >/dev/null 2>&1; then
+    err "Cannot connect to Docker via Colima socket."
+    info "Try restarting: colima restart -p ${COLIMA_PROFILE}"
+    exit 1
+  fi
+
+# ══════════════════════════════════════════════════════════════════
+#  DOCKER DESKTOP: standard checks
+# ══════════════════════════════════════════════════════════════════
+else
+  command -v docker >/dev/null 2>&1 || { err "Docker is not installed."; exit 1; }
+  docker compose version >/dev/null 2>&1 || { err "Docker Compose v2 is required."; exit 1; }
+fi
+
+# ── Memory check (shared) ─────────────────────────────────────────
 MEM_MB=$(docker info --format '{{.MemTotal}}' 2>/dev/null | awk '{printf "%.0f", $1/1048576}')
 if [ -n "$MEM_MB" ] && [ "$MEM_MB" -lt 2048 ] 2>/dev/null; then
   warn "Docker has ${MEM_MB} MB RAM — builds need at least 2 GB (OOM risk)."
@@ -48,14 +138,20 @@ fi
 # ── Configuration ──────────────────────────────────────────────────
 mkdir -p "${OPENCLAW_DIR}/workspace"
 
-# ── Copy default config if not present ────────────────────────────
+# Copy default config if not present
 if [ ! -f "${OPENCLAW_DIR}/openclaw.json" ] && [ -f "${SCRIPT_DIR}/openclaw.json" ]; then
   cp "${SCRIPT_DIR}/openclaw.json" "${OPENCLAW_DIR}/openclaw.json"
   ok "Copied default openclaw.json to ${OPENCLAW_DIR}/"
 fi
 
-# ── Onboarding wizard ─────────────────────────────────────────────
-info "OpenClaw Docker Setup"
+# ══════════════════════════════════════════════════════════════════
+#  ONBOARDING WIZARD
+# ══════════════════════════════════════════════════════════════════
+if [ "$RUNTIME" = "colima" ]; then
+  info "OpenClaw Setup (Colima)"
+else
+  info "OpenClaw Setup (Docker)"
+fi
 echo ""
 
 # Gateway bind mode
@@ -105,7 +201,6 @@ DISCORD_SID="$PREV_DISCORD_SID"
 DISCORD_UID="$PREV_DISCORD_UID"
 
 if [ -n "$PREV_DISCORD" ]; then
-  # Already configured — skip unless they say no
   if [[ "$ENABLE_DISCORD" =~ ^[nN] ]]; then
     DISCORD_TOKEN=""
     DISCORD_SID=""
@@ -217,9 +312,18 @@ if [[ "$ENABLE_WA_INPUT" =~ ^[yY] ]]; then
   echo ""
 fi
 
+# -- Browser --
+INSTALL_BROWSER=""
+printf "Install Chromium browser for web browsing? [y/N]: "
+read -r ENABLE_BROWSER
+if [[ "$ENABLE_BROWSER" =~ ^[yY] ]]; then
+  INSTALL_BROWSER="1"
+  info "Chromium will be installed after the gateway starts."
+  echo ""
+fi
+
 # Image source
 PREV_IMAGE="${OPENCLAW_IMAGE:-ghcr.io/openclaw/openclaw:latest}"
-DEFAULT_IMAGE="ghcr.io/openclaw/openclaw:latest"
 printf "Docker image [${PREV_IMAGE}] (or 'build' to build locally): "
 read -r IMAGE_CHOICE
 if [ "$IMAGE_CHOICE" = "build" ]; then
@@ -227,6 +331,10 @@ if [ "$IMAGE_CHOICE" = "build" ]; then
 else
   REMOTE_IMAGE="${IMAGE_CHOICE:-$PREV_IMAGE}"
 fi
+
+# ══════════════════════════════════════════════════════════════════
+#  GENERATE CONFIG
+# ══════════════════════════════════════════════════════════════════
 
 # ── Generate or keep gateway token ─────────────────────────────────
 if [ -n "${GATEWAY_TOKEN:-}" ]; then
@@ -237,8 +345,18 @@ else
 fi
 
 # ── Write .env ─────────────────────────────────────────────────────
+ENV_HEADER="# Generated by setup.sh on $(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+
+# Colima-specific env vars
+COLIMA_ENV=""
+if [ "$RUNTIME" = "colima" ]; then
+  COLIMA_ENV="# Colima profile: ${COLIMA_PROFILE}
+DOCKER_HOST=unix://${COLIMA_SOCKET}"
+fi
+
 cat > "$ENV_FILE" <<EOF
-# Generated by docker-setup.sh on $(date -u +"%Y-%m-%dT%H:%M:%SZ")
+${ENV_HEADER}
+${COLIMA_ENV}
 GATEWAY_TOKEN=${GATEWAY_TOKEN}
 OPENCLAW_GATEWAY_BIND=${BIND_MODE}
 OPENCLAW_SANDBOX=${SANDBOX}
@@ -258,7 +376,7 @@ SLACK_BOT_TOKEN=${SLACK_BOT}
 # Docker
 OPENCLAW_EXTENSIONS=
 OPENCLAW_DOCKER_APT_PACKAGES=
-OPENCLAW_DOCKER_SOCKET=/var/run/docker.sock
+OPENCLAW_DOCKER_SOCKET=${DOCKER_SOCKET}
 OPENCLAW_EXTRA_MOUNTS=
 OPENCLAW_ALLOW_INSECURE_PRIVATE_WS=
 EOF
@@ -268,7 +386,6 @@ ok "Configuration written to ${ENV_FILE}"
 # ── Generate openclaw.json with only enabled channels ──────────────
 CONFIG_FILE="${OPENCLAW_DIR}/openclaw.json"
 
-# Build channels block — only include channels that have tokens
 CHANNELS_JSON=""
 
 if [ -n "$DISCORD_TOKEN" ]; then
@@ -352,6 +469,12 @@ cat > "$CONFIG_FILE" <<JSONEOF
     }
   },
 
+  browser: {
+    enabled: ${INSTALL_BROWSER:+true}${INSTALL_BROWSER:-false},
+    headless: true,
+    noSandbox: true
+  },
+
   channels: {
 ${CHANNELS_JSON}  }
 }
@@ -359,7 +482,10 @@ JSONEOF
 
 ok "Generated openclaw.json with enabled channels only."
 
-# ── Build or pull ──────────────────────────────────────────────────
+# ══════════════════════════════════════════════════════════════════
+#  BUILD / PULL / START
+# ══════════════════════════════════════════════════════════════════
+
 if [ -n "$REMOTE_IMAGE" ]; then
   info "Pulling image: ${REMOTE_IMAGE}"
   docker pull "$REMOTE_IMAGE"
@@ -370,7 +496,6 @@ fi
 
 ok "Image ready."
 
-# ── Start ──────────────────────────────────────────────────────────
 info "Starting OpenClaw gateway..."
 if [ -n "$REMOTE_IMAGE" ]; then
   docker compose --env-file "$ENV_FILE" up -d
@@ -378,8 +503,24 @@ else
   docker compose -f docker-compose.yml -f docker-compose.build.yml --env-file "$ENV_FILE" up -d
 fi
 
+# ── Install Chromium if requested ──────────────────────────────────
+if [ -n "$INSTALL_BROWSER" ]; then
+  info "Installing Chromium inside the container (this may take a minute)..."
+  docker exec openclaw-gateway npx playwright install --with-deps chromium 2>/dev/null || \
+    docker exec -u root openclaw-gateway bash -c "apt-get update && apt-get install -y --no-install-recommends chromium" 2>/dev/null || \
+    warn "Chromium auto-install failed. Run manually: ./openclaw.sh install-browser"
+  ok "Chromium installed."
+fi
+
+# ══════════════════════════════════════════════════════════════════
+#  DONE
+# ══════════════════════════════════════════════════════════════════
 echo ""
-ok "OpenClaw is running!"
+if [ "$RUNTIME" = "colima" ]; then
+  ok "OpenClaw is running! (via Colima profile '${COLIMA_PROFILE}')"
+else
+  ok "OpenClaw is running!"
+fi
 echo ""
 info "Open http://127.0.0.1:18789/ in your browser."
 info "Paste this token in the Control UI (Settings → Token):"
@@ -400,5 +541,13 @@ fi
 if [ -n "$ENABLE_WA" ]; then
   info "WhatsApp: Run this to pair via QR code:"
   info "  docker exec -it openclaw-gateway openclaw channels login --channel whatsapp"
+fi
+
+if [ "$RUNTIME" = "colima" ]; then
+  echo ""
+  info "Useful Colima commands:"
+  info "  colima status -p ${COLIMA_PROFILE}    # check VM status"
+  info "  colima stop -p ${COLIMA_PROFILE}      # stop VM"
+  info "  colima delete -p ${COLIMA_PROFILE}    # remove VM"
 fi
 echo ""

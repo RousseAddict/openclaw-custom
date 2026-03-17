@@ -20,9 +20,11 @@ services:
       - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN:-}
       - SLACK_APP_TOKEN=${SLACK_APP_TOKEN:-}
       - SLACK_BOT_TOKEN=${SLACK_BOT_TOKEN:-}
+      - PLAYWRIGHT_BROWSERS_PATH=/home/node/.cache/ms-playwright
     volumes:
       - ${HOME}/.openclaw:/home/node/.openclaw
       - ${HOME}/.openclaw/workspace:/home/node/.openclaw/workspace
+      - openclaw_home:/home/node
       - ${OPENCLAW_DOCKER_SOCKET:-/var/run/docker.sock}:/var/run/docker.sock:ro
       - ${OPENCLAW_EXTRA_MOUNTS:-/dev/null}:/dev/null
     user: "1000:1000"
@@ -37,3 +39,6 @@ services:
       timeout: 5s
       start_period: 10s
       retries: 3
+
+volumes:
+  openclaw_home:

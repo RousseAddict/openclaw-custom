@@ -24,15 +24,16 @@ usage() {
 Usage: ./openclaw.sh <command>
 
 Commands:
-  start       Start the gateway
-  stop        Stop the gateway
-  restart     Restart the gateway
-  logs        Tail live logs
-  status      Show container status
-  token       Show the gateway token
-  shell       Open a shell in the container
-  pull        Pull the latest image
-  update      Pull latest image and restart
+  start             Start the gateway
+  stop              Stop the gateway
+  restart           Restart the gateway
+  logs              Tail live logs
+  status            Show container status
+  token             Show the gateway token
+  shell             Open a shell in the container
+  pull              Pull the latest image
+  update            Pull latest image and restart
+  install-browser   Install Chromium inside the container
 EOF
 }
 
@@ -67,6 +68,13 @@ case "${1:-}" in
     docker compose --env-file "$ENV_FILE" pull
     docker compose --env-file "$ENV_FILE" up -d --force-recreate
     echo "Gateway updated and restarted."
+    ;;
+  install-browser)
+    echo "Installing Chromium inside the container..."
+    docker exec openclaw-gateway npx playwright install --with-deps chromium 2>/dev/null || \
+      docker exec -u root openclaw-gateway bash -c "apt-get update && apt-get install -y --no-install-recommends chromium" 2>/dev/null || \
+      { echo "Auto-install failed. Try: ./openclaw.sh shell, then install manually." >&2; exit 1; }
+    echo "Chromium installed. Browser tools are now available."
     ;;
   *)
     usage
