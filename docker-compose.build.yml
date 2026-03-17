@@ -1,0 +1,10 @@
+services:
+  gateway:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        OPENCLAW_EXTENSIONS: "${OPENCLAW_EXTENSIONS:-}"
+        OPENCLAW_DOCKER_APT_PACKAGES: "${OPENCLAW_DOCKER_APT_PACKAGES:-}"
+        OPENCLAW_SANDBOX: "${OPENCLAW_SANDBOX:-}"
+    image: openclaw:local

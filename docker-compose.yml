@@ -1,0 +1,39 @@
+services:
+  gateway:
+    image: "${OPENCLAW_IMAGE:-ghcr.io/openclaw/openclaw:latest}"
+    container_name: openclaw-gateway
+    restart: unless-stopped
+    ports:
+      - "18789:18789"
+    environment:
+      - NODE_ENV=production
+      # Always bind 0.0.0.0 inside the container; Docker network isolation
+      # provides the security boundary. The OPENCLAW_GATEWAY_BIND env var
+      # from .env is ignored here on purpose.
+      - OPENCLAW_GATEWAY_BIND=lan
+      - OPENCLAW_SANDBOX=${OPENCLAW_SANDBOX:-}
+      - OPENCLAW_DOCKER_SOCKET=${OPENCLAW_DOCKER_SOCKET:-/var/run/docker.sock}
+      - OPENCLAW_ALLOW_INSECURE_PRIVATE_WS=${OPENCLAW_ALLOW_INSECURE_PRIVATE_WS:-}
+      - GATEWAY_TOKEN=${GATEWAY_TOKEN:-}
+      - OPENROUTER_API_KEY=${OPENROUTER_API_KEY:-}
+      - DISCORD_BOT_TOKEN=${DISCORD_BOT_TOKEN:-}
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN:-}
+      - SLACK_APP_TOKEN=${SLACK_APP_TOKEN:-}
+      - SLACK_BOT_TOKEN=${SLACK_BOT_TOKEN:-}
+    volumes:
+      - ${HOME}/.openclaw:/home/node/.openclaw
+      - ${HOME}/.openclaw/workspace:/home/node/.openclaw/workspace
+      - ${OPENCLAW_DOCKER_SOCKET:-/var/run/docker.sock}:/var/run/docker.sock:ro
+      - ${OPENCLAW_EXTRA_MOUNTS:-/dev/null}:/dev/null
+    user: "1000:1000"
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - NET_RAW
+      - NET_ADMIN
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:18789/healthz"]
+      interval: 30s
+      timeout: 5s
+      start_period: 10s
+      retries: 3

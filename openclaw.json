@@ -1,0 +1,43 @@
+{
+  // OpenClaw configuration — JSON5 format
+  // Docs: https://docs.openclaw.ai/gateway/configuration
+
+  agents: {
+    list: [
+      {
+        id: "main",
+        default: true,
+        model: "openrouter/nvidia/nemotron-3-super-120b-a12b:free",
+        workspace: "~/.openclaw/workspace"
+      }
+    ],
+    defaults: {
+      model: {
+        primary: "openrouter/nvidia/nemotron-3-super-120b-a12b:free",
+        fallbacks: ["openrouter/openrouter/free"]
+      },
+      models: {
+        "openrouter/nvidia/nemotron-3-super-120b-a12b:free": { alias: "Nemotron 120B" },
+        "openrouter/nvidia/nemotron-3-nano-30b-a3b:free": { alias: "Nemotron 30B" },
+        "openrouter/stepfun/step-3.5-flash:free": { alias: "Step Flash" },
+        "openrouter/minimax/minimax-m2.5:free": { alias: "MiniMax M2.5" },
+        "openrouter/openrouter/free": { alias: "Auto Free" }
+      }
+    }
+  },
+
+  models: {
+    providers: {
+      openrouter: {
+        baseUrl: "https://openrouter.ai/api/v1",
+        apiKey: "${OPENROUTER_API_KEY}",
+        models: []
+      }
+    }
+  },
+
+  channels: {
+    // Channels are added by the setup scripts.
+    // Only enabled channels with tokens should appear here.
+  }
+}
