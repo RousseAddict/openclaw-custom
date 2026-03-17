@@ -470,7 +470,7 @@ cat > "$CONFIG_FILE" <<JSONEOF
   },
 
   browser: {
-    enabled: ${INSTALL_BROWSER:+true}${INSTALL_BROWSER:-false},
+    enabled: $([ -n "$INSTALL_BROWSER" ] && echo "true" || echo "false"),
     headless: true,
     noSandbox: true
   },
