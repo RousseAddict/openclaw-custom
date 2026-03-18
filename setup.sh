@@ -469,6 +469,11 @@ cat > "$CONFIG_FILE" <<JSONEOF
     }
   },
 
+  // Inside Docker, always bind 0.0.0.0 — container isolation provides security.
+  gateway: {
+    bind: "lan"
+  },
+
   browser: {
     enabled: $([ -n "$INSTALL_BROWSER" ] && echo "true" || echo "false"),
     headless: true,

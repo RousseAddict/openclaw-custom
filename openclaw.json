@@ -36,6 +36,11 @@
     }
   },
 
+  // Inside Docker, always bind 0.0.0.0 — container isolation provides security.
+  gateway: {
+    bind: "lan"
+  },
+
   channels: {
     // Channels are added by the setup scripts.
     // Only enabled channels with tokens should appear here.
