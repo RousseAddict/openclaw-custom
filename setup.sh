@@ -471,6 +471,7 @@ cat > "$CONFIG_FILE" <<JSONEOF
 
   // Inside Docker, always bind 0.0.0.0 — container isolation provides security.
   gateway: {
+    mode: "local",
     bind: "lan"
   },
 
